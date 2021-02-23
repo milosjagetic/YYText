@@ -3235,6 +3235,17 @@ typedef NS_ENUM(NSUInteger, YYTextMoveDirection) {
     [self replaceRange:_selectedTextRange withText:text];
 }
 
+- (void)insertAttributedText:(NSAttributedString *)attributedText
+{
+    if (attributedText.length == 0) return;
+    if (!NSEqualRanges(_lastTypeRange, _selectedTextRange.asRange)) {
+        [self _saveToUndoStack];
+        [self _resetRedoStack];
+    }
+    
+    [self replaceRange:_selectedTextRange withAttributedText:attributedText];
+}
+
 - (void)deleteBackward {
     [self _updateIfNeeded];
     NSRange range = _selectedTextRange.asRange;
@@ -3390,6 +3401,111 @@ typedef NS_ENUM(NSUInteger, YYTextMoveDirection) {
     [self _updateOuterProperties];
     [self _updateSelectionView];
     [self _scrollRangeToVisible:_selectedTextRange];
+}
+
+- (void)replaceRange:(YYTextRange *)range withAttributedText:(NSAttributedString *)attributedText
+{
+    if (!range) return;
+    if (!attributedText) attributedText = NSAttributedString.new;
+    if (range.asRange.length == 0 && attributedText.length == 0) return;
+    range = [self _correctedTextRange:range];
+
+    _state.selectedWithoutEdit = NO;
+    _state.deleteConfirm = NO;
+    [self _endTouchTracking];
+    [self _hideMenu];
+    
+    [self _replaceRange:range withAttributedText:attributedText notifyDelegate:YES];
+    
+    [self _parseText];
+    [self _updateOuterProperties];
+    [self _update];
+    
+    if (self.isFirstResponder) {
+        [self _scrollRangeToVisible:_selectedTextRange];
+    }
+    
+    if ([self.delegate respondsToSelector:@selector(textViewDidChange:)]) {
+        [self.delegate textViewDidChange:self];
+    }
+    [[NSNotificationCenter defaultCenter] postNotificationName:YYTextViewTextDidChangeNotification object:self];
+    
+    _lastTypeRange = _selectedTextRange.asRange;
+}
+
+- (void)_replaceRange:(YYTextRange *)range withAttributedText:(NSAttributedString *)attributedText notifyDelegate:(BOOL)notify
+{
+    if (NSEqualRanges(range.asRange, _selectedTextRange.asRange))
+    {
+        if (notify) [_inputDelegate selectionWillChange:self];
+        
+        NSRange newRange = NSMakeRange(0, 0);
+        newRange.location = _selectedTextRange.start.offset + attributedText.length;
+        _selectedTextRange = [YYTextRange rangeWithRange:newRange];
+        if (notify) [_inputDelegate selectionDidChange:self];
+    }
+    else
+    {
+        if (range.asRange.length != attributedText.length)
+        {
+            if (notify) [_inputDelegate selectionWillChange:self];
+            
+            NSRange unionRange = NSIntersectionRange(_selectedTextRange.asRange, range.asRange);
+            if (unionRange.length == 0)
+            {
+                // no intersection
+                if (range.end.offset <= _selectedTextRange.start.offset)
+                {
+                    NSInteger ofs = (NSInteger)attributedText.length - (NSInteger)range.asRange.length;
+                    NSRange newRange = _selectedTextRange.asRange;
+                    newRange.location += ofs;
+                    _selectedTextRange = [YYTextRange rangeWithRange:newRange];
+                }
+            }
+            else if (unionRange.length == _selectedTextRange.asRange.length)
+            {
+                // target range contains selected range
+                _selectedTextRange = [YYTextRange rangeWithRange:NSMakeRange(range.start.offset + attributedText.length, 0)];
+            }
+            else if (range.start.offset >= _selectedTextRange.start.offset &&
+                       range.end.offset <= _selectedTextRange.end.offset)
+            {
+                // target range inside selected range
+                NSInteger ofs = (NSInteger)attributedText.length - (NSInteger)range.asRange.length;
+                NSRange newRange = _selectedTextRange.asRange;
+                newRange.length += ofs;
+                _selectedTextRange = [YYTextRange rangeWithRange:newRange];
+            }
+            else
+            {
+                // interleaving
+                if (range.start.offset < _selectedTextRange.start.offset)
+                {
+                    NSRange newRange = _selectedTextRange.asRange;
+                    newRange.location = range.start.offset + attributedText.length;
+                    newRange.length -= unionRange.length;
+                    _selectedTextRange = [YYTextRange rangeWithRange:newRange];
+                }
+                else
+                {
+                    NSRange newRange = _selectedTextRange.asRange;
+                    newRange.length -= unionRange.length;
+                    _selectedTextRange = [YYTextRange rangeWithRange:newRange];
+                }
+            }
+            _selectedTextRange = [self _correctedTextRange:_selectedTextRange];
+            if (notify) [_inputDelegate selectionDidChange:self];
+        }
+    }
+    if (notify) [_inputDelegate textWillChange:self];
+    
+    [_innerText replaceCharactersInRange:range.asRange withString:attributedText.string];
+    NSLog(@"%@", attributedText.yy_attributes);
+    [attributedText.yy_attributes enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
+        [_innerText yy_setAttribute:key value:obj range:NSMakeRange(_selectedTextRange.asRange.location - attributedText.length, attributedText.length)];
+    }];
+    NSLog(@"%@", _innerText.yy_attributes);
+    if (notify) [_inputDelegate textDidChange:self];
 }
 
 - (void)replaceRange:(YYTextRange *)range withText:(NSString *)text {
