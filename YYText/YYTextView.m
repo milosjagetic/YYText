@@ -2637,6 +2637,8 @@ typedef NS_ENUM(NSUInteger, YYTextMoveDirection) {
     UITouch *touch = touches.anyObject;
     CGPoint point = [touch locationInView:_containerView];
     
+    if (!CGRectContainsPoint(_containerView.frame, point)) return;
+    
     _trackingTime = touch.timestamp;
     _trackingPoint = point;
     
