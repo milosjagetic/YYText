@@ -23,9 +23,6 @@ let package = Package(
             name: "YYText",
             path: "YYText",
             cSettings: [
-                .headerSearchPath("Component"),
-                .headerSearchPath("../YYText/String"),
-                .headerSearchPath("Utility"),
                 .headerSearchPath(".")
             ])
     ]
